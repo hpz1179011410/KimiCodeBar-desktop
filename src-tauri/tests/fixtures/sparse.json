@@ -1,0 +1,12 @@
+{
+  "totalQuota": {
+    "limit": " 3000 ",
+    "remaining": "not-a-number"
+  },
+  "boosterWallet": {
+    "status": "STATUS_DISABLED",
+    "amountLeft": "500000000",
+    "priceInCents": "199"
+  },
+  "membership": "free"
+}

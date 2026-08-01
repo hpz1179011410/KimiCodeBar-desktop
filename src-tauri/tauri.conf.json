@@ -1,0 +1,68 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "KimiCodeBar",
+  "version": "0.1.0",
+  "identifier": "com.kimicodebar.desktop",
+  "build": {
+    "frontendDist": "../dist",
+    "devUrl": "http://localhost:1420",
+    "beforeDevCommand": "npm run dev",
+    "beforeBuildCommand": "npm run build"
+  },
+  "app": {
+    "windows": [
+      {
+        "label": "main",
+        "title": "KimiCodeBar",
+        "width": 360,
+        "height": 800,
+        "decorations": false,
+        "alwaysOnTop": true,
+        "skipTaskbar": true,
+        "resizable": false,
+        "visible": false,
+        "url": "index.html"
+      },
+      {
+        "label": "settings",
+        "title": "KimiCodeBar 设置",
+        "width": 520,
+        "height": 640,
+        "visible": false,
+        "url": "settings.html"
+      },
+      {
+        "label": "widget",
+        "title": "KimiCodeBar",
+        "width": 280,
+        "height": 340,
+        "decorations": false,
+        "skipTaskbar": true,
+        "resizable": false,
+        "visible": false,
+        "url": "widget.html"
+      }
+    ],
+    "security": {
+      "csp": null
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": "all",
+    "icon": [
+      "icons/32x32.png",
+      "icons/128x128.png",
+      "icons/128x128@2x.png",
+      "icons/icon.png",
+      "icons/icon.ico",
+      "icons/icon.icns"
+    ],
+    "windows": {
+      "nsis": {
+        "installMode": "currentUser",
+        "languages": ["SimpChinese"]
+      }
+    }
+  }
+}

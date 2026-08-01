@@ -1,0 +1,21 @@
+# 前端依赖（npm install 生成，勿提交）
+node_modules
+.pnpm-store/
+
+# 前端构建产物（npm run build 生成，发布时由 tauri build 重新产出）
+dist
+*.tsbuildinfo
+
+# Rust 编译产物（cargo 生成，体积大且与平台相关）
+src-tauri/target
+
+# 编辑器与系统杂项
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+*.log
+
+# 交叉检查替身工具（scripts/cross-check/*.sh 自动用 rustc 重新生成）
+scripts/cross-check/*.exe
+scripts/cross-check/*.pdb

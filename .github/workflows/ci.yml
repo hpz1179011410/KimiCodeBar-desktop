@@ -1,0 +1,80 @@
+name: CI
+
+on:
+    push:
+        branches: [main]
+        tags: ["v*"]
+    pull_request:
+
+jobs:
+    frontend:
+        name: 前端检查（tsc + vite + prettier）
+        runs-on: windows-latest
+        steps:
+            - uses: actions/checkout@v4
+            - uses: actions/setup-node@v4
+              with:
+                  node-version: 20
+                  cache: npm
+            - run: npm ci
+            - run: npm run format:check
+            - run: npm run build
+
+    rust:
+        name: Rust 检查（Windows：test + clippy）
+        runs-on: windows-latest
+        defaults:
+            run:
+                working-directory: src-tauri
+        steps:
+            - uses: actions/checkout@v4
+            - uses: dtolnay/rust-toolchain@stable
+              with:
+                  components: clippy
+            - uses: Swatinem/rust-cache@v2
+            - run: cargo clippy --all-targets -- -D warnings
+            - run: cargo test
+
+    cross-check:
+        name: 跨平台编译检查（Linux / macOS）
+        runs-on: windows-latest
+        defaults:
+            run:
+                working-directory: src-tauri
+        steps:
+            - uses: actions/checkout@v4
+            - uses: dtolnay/rust-toolchain@stable
+              with:
+                  targets: x86_64-unknown-linux-gnu, aarch64-apple-darwin
+            - uses: Swatinem/rust-cache@v2
+            # cross-check 脚本内置 pkg-config / cc 替身，仅供 cargo check 类型检查，
+            # 真实链接在 release workflow 的对应平台 runner 上完成
+            - name: cargo check (Linux)
+              shell: bash
+              run: bash ../scripts/cross-check/linux.sh
+            - name: cargo check (macOS)
+              shell: bash
+              run: bash ../scripts/cross-check/darwin.sh
+
+    # 推送到 main 或 tag 后，把代码镜像到 Gitee（只同步代码与 tag，Release 产物仍在 GitHub）
+    mirror-gitee:
+        name: 同步到 Gitee
+        runs-on: ubuntu-latest
+        if: github.event_name == 'push'
+        steps:
+            - uses: actions/checkout@v4
+              with:
+                  fetch-depth: 0
+            - name: 配置 Gitee SSH
+              run: |
+                  mkdir -p ~/.ssh
+                  echo "${{ secrets.GITEE_SSH_PRIVATE_KEY }}" > ~/.ssh/id_ed25519
+                  chmod 600 ~/.ssh/id_ed25519
+                  ssh-keyscan gitee.com >> ~/.ssh/known_hosts
+            - name: 推送镜像（main + tags）
+              env:
+                  GIT_SSH_COMMAND: ssh -i ~/.ssh/id_ed25519 -o IdentitiesOnly=yes
+              run: |
+                  git remote add gitee git@gitee.com:${{ vars.GITEE_REPO }}.git
+                  git push gitee main
+                  git push gitee --tags

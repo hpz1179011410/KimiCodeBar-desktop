@@ -1,0 +1,13 @@
+{
+  "usage": {
+    "limit": "800",
+    "used": "100"
+  },
+  "limits": [
+    {
+      "window": { "duration": "300" },
+      "limit": "50",
+      "used": "5"
+    }
+  ]
+}

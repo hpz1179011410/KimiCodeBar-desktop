@@ -1,0 +1,20 @@
+{
+  "usage": {
+    "limit": "1000",
+    "used": "500",
+    "remaining": "500",
+    "resetTime": "2026-08-06T00:00:00Z"
+  },
+  "limits": [
+    {
+      "window": { "duration": 300 },
+      "limit": "100",
+      "used": "40",
+      "remaining": "60"
+    }
+  ],
+  "totalQuota": {
+    "limit": "2000",
+    "remaining": "1000"
+  }
+}

@@ -1,0 +1,55 @@
+[package]
+name = "kimicodebar"
+version = "0.1.0"
+description = "Kimi Code quota & session companion bar for Windows / macOS / Linux"
+edition = "2021"
+rust-version = "1.77.2"
+
+[lib]
+name = "kimicodebar_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = ["tray-icon", "image-png"] }
+tauri-plugin-notification = "2"
+tauri-plugin-autostart = "2"
+tauri-plugin-opener = "2"
+tauri-plugin-single-instance = "2"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+toml = "0.8"
+reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
+chrono = { version = "0.4", default-features = false, features = ["std", "clock", "serde"] }
+tokio = { version = "1", features = ["macros", "rt-multi-thread", "time", "process", "sync"] }
+urlencoding = "2"
+uuid = { version = "1", features = ["v4"] }
+thiserror = "2"
+
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "0.59", features = [
+    "Win32_Foundation",
+    "Win32_UI_WindowsAndMessaging",
+    "Win32_Security_Cryptography",
+    "Win32_System_SystemInformation",
+    "Win32_Globalization",
+] }
+# Windows：凭据管理器后端
+keyring = { version = "3", features = ["windows-native"] }
+
+[target.'cfg(target_os = "macos")'.dependencies]
+# macOS：Keychain 后端
+keyring = { version = "3", features = ["apple-native"] }
+
+[target.'cfg(target_os = "linux")'.dependencies]
+# Linux：Secret Service 后端（dbus-secret-service，纯 Rust zbus D-Bus 客户端，无 libsecret C 依赖）。
+# crypto-rust 用 RustCrypto 做会话加密，避免引入 OpenSSL。
+# 运行时仍需 D-Bus session bus + Secret Service 实现（gnome-keyring / KWallet），见 README。
+keyring = { version = "3", features = ["sync-secret-service", "crypto-rust"] }
+
+[features]
+# 默认使用 WRY（Tauri 2 默认 WebView2）
+default = ["custom-protocol"]
+custom-protocol = ["tauri/custom-protocol"]

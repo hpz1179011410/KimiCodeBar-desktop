@@ -1,0 +1,32 @@
+{
+    "name": "kimicodebar-desktop",
+    "private": true,
+    "version": "0.1.0",
+    "type": "module",
+    "scripts": {
+        "dev": "vite",
+        "build": "tsc && vite build",
+        "tauri": "tauri",
+        "format": "prettier --write \"src/**/*.{ts,tsx,css}\" \"*.{ts,json,html}\"",
+        "format:check": "prettier --check \"src/**/*.{ts,tsx,css}\" \"*.{ts,json,html}\""
+    },
+    "dependencies": {
+        "@tauri-apps/api": "^2",
+        "@tauri-apps/plugin-autostart": "^2",
+        "@tauri-apps/plugin-opener": "^2",
+        "i18next": "^23.16.0",
+        "react": "^19.2.8",
+        "react-dom": "^19.2.8",
+        "react-i18next": "^15.1.0"
+    },
+    "devDependencies": {
+        "@tauri-apps/cli": "^2",
+        "@types/node": "^26.1.2",
+        "@types/react": "^19.2.18",
+        "@types/react-dom": "^19.2.4",
+        "@vitejs/plugin-react": "^4.3.4",
+        "prettier": "^3.9.6",
+        "typescript": "~5.6.3",
+        "vite": "^6.0.5"
+    }
+}

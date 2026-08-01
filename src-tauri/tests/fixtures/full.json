@@ -1,0 +1,35 @@
+{
+  "usage": {
+    "limit": "1000",
+    "used": "200",
+    "remaining": "800",
+    "resetTime": "2026-08-06T00:00:00Z"
+  },
+  "limits": [
+    {
+      "window": { "duration": 10080 },
+      "limit": "500",
+      "used": "50",
+      "remaining": "450"
+    },
+    {
+      "window": { "duration": 300 },
+      "limit": "100",
+      "used": "90",
+      "remaining": "10",
+      "resetTime": "2026-07-30T15:00:00+08:00"
+    }
+  ],
+  "totalQuota": {
+    "limit": "2000",
+    "remaining": "1500"
+  },
+  "boosterWallet": {
+    "status": "STATUS_ACTIVE",
+    "amountLeft": "123456789",
+    "priceInCents": "500"
+  },
+  "membership": {
+    "level": "pro"
+  }
+}
