@@ -43,6 +43,8 @@ jobs:
 
             - name: Rust 缓存
               uses: Swatinem/rust-cache@v2
+              with:
+                  workspaces: src-tauri -> target
 
             # Linux 系统依赖：GTK / WebKitGTK 4.0（tao/wry）+ libdbus（keyring secret-service）
             - name: 安装 Linux 系统依赖

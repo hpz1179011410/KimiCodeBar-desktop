@@ -32,6 +32,12 @@ jobs:
               with:
                   components: clippy
             - uses: Swatinem/rust-cache@v2
+              with:
+                  workspaces: src-tauri -> target
+            # generate_context! 编译期会校验 frontendDist；Rust 检查不需要真实前端产物，
+            # 但必须保证目录存在。
+            - name: 创建前端产物目录
+              run: New-Item -ItemType Directory -Force ../dist | Out-Null
             - run: cargo clippy --all-targets -- -D warnings
             - run: cargo test
 
@@ -47,6 +53,10 @@ jobs:
               with:
                   targets: x86_64-unknown-linux-gnu, aarch64-apple-darwin
             - uses: Swatinem/rust-cache@v2
+              with:
+                  workspaces: src-tauri -> target
+            - name: 创建前端产物目录
+              run: New-Item -ItemType Directory -Force ../dist | Out-Null
             # cross-check 脚本内置 pkg-config / cc 替身，仅供 cargo check 类型检查，
             # 真实链接在 release workflow 的对应平台 runner 上完成
             - name: cargo check (Linux)
@@ -62,19 +72,37 @@ jobs:
         runs-on: ubuntu-latest
         if: github.event_name == 'push'
         steps:
+            - name: 检查 Gitee 镜像配置
+              id: gitee
+              env:
+                  GITEE_SSH_PRIVATE_KEY: ${{ secrets.GITEE_SSH_PRIVATE_KEY }}
+                  GITEE_REPO: ${{ vars.GITEE_REPO }}
+              run: |
+                  if [[ -n "$GITEE_SSH_PRIVATE_KEY" && -n "$GITEE_REPO" ]]; then
+                    echo "enabled=true" >> "$GITHUB_OUTPUT"
+                  else
+                    echo "enabled=false" >> "$GITHUB_OUTPUT"
+                    echo "未配置 GITEE_SSH_PRIVATE_KEY 或 GITEE_REPO，跳过 Gitee 镜像。"
+                  fi
             - uses: actions/checkout@v4
+              if: steps.gitee.outputs.enabled == 'true'
               with:
                   fetch-depth: 0
             - name: 配置 Gitee SSH
+              if: steps.gitee.outputs.enabled == 'true'
+              env:
+                  GITEE_SSH_PRIVATE_KEY: ${{ secrets.GITEE_SSH_PRIVATE_KEY }}
               run: |
                   mkdir -p ~/.ssh
-                  echo "${{ secrets.GITEE_SSH_PRIVATE_KEY }}" > ~/.ssh/id_ed25519
+                  printf '%s\n' "$GITEE_SSH_PRIVATE_KEY" > ~/.ssh/id_ed25519
                   chmod 600 ~/.ssh/id_ed25519
                   ssh-keyscan gitee.com >> ~/.ssh/known_hosts
             - name: 推送镜像（main + tags）
+              if: steps.gitee.outputs.enabled == 'true'
               env:
                   GIT_SSH_COMMAND: ssh -i ~/.ssh/id_ed25519 -o IdentitiesOnly=yes
+                  GITEE_REPO: ${{ vars.GITEE_REPO }}
               run: |
-                  git remote add gitee git@gitee.com:${{ vars.GITEE_REPO }}.git
-                  git push gitee main
+                  git remote add gitee git@gitee.com:${GITEE_REPO}.git
+                  git push gitee refs/remotes/origin/main:refs/heads/main
                   git push gitee --tags
