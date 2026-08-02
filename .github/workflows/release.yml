@@ -69,7 +69,7 @@ jobs:
                   tagName: ${{ github.ref_name }}
                   releaseName: "KimiCodeBar ${{ github.ref_name }}"
                   releaseBody: ${{ steps.release_notes.outputs.body }}
-                  releaseDraft: true
+                  releaseDraft: false
                   prerelease: false
                   includeUpdaterJson: true
                   updaterJsonPreferNsis: true
