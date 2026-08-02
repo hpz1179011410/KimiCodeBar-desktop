@@ -132,65 +132,201 @@ pub fn normalize_auth_cookie(input: &str) -> Result<String, String> {
     Ok(value.to_string())
 }
 
-fn extract_number(segment: &str, key: &str) -> Option<f64> {
-    let start = segment.find(key)? + key.len();
-    let tail = segment[start..].trim_start();
-    let tail = tail.strip_prefix(':')?.trim_start();
-    let end = tail
-        .find(|c: char| !(c.is_ascii_digit() || matches!(c, '-' | '+' | '.' | 'e' | 'E')))
-        .unwrap_or(tail.len());
-    let number = tail[..end].parse::<f64>().ok()?;
-    number.is_finite().then_some(number)
+/// 从 HTML 中提取所有 `<script>...</script>` 的文本内容。
+fn extract_script_contents(html: &str) -> Vec<&str> {
+    let mut scripts = Vec::new();
+    let mut pos = 0;
+    while let Some(start) = html[pos..].find("<script") {
+        let abs = pos + start;
+        let tag_end = match html[abs..].find('>') {
+            Some(p) => abs + p + 1,
+            None => break,
+        };
+        let content_end = match html[tag_end..].find("</script>") {
+            Some(p) => tag_end + p,
+            None => break,
+        };
+        scripts.push(&html[tag_end..content_end]);
+        pos = content_end + "</script>".len();
+    }
+    scripts
+}
+
+/// 从 `source` 的 `brace_pos` 位置开始，返回匹配花括号的平衡对象。
+/// 跳过双引号、单引号和反引号字符串，遇到未闭合字符串 / 对象时返回 `None`。
+fn find_balanced_object(source: &str, brace_pos: usize) -> Option<&str> {
+    let bytes = source.as_bytes();
+    if brace_pos >= bytes.len() || bytes[brace_pos] != b'{' {
+        return None;
+    }
+    let mut depth = 1u32;
+    let mut i = brace_pos + 1;
+    while i < bytes.len() {
+        match bytes[i] {
+            b'{' => depth += 1,
+            b'}' => {
+                depth -= 1;
+                if depth == 0 {
+                    return Some(&source[brace_pos..=i]);
+                }
+            }
+            b'"' | b'\'' | b'`' => {
+                let quote = bytes[i];
+                i += 1;
+                while i < bytes.len() {
+                    if bytes[i] == b'\\' {
+                        i += 1;
+                    } else if bytes[i] == quote {
+                        break;
+                    }
+                    i += 1;
+                }
+                if i >= bytes.len() {
+                    return None;
+                }
+            }
+            _ => {}
+        }
+        i += 1;
+    }
+    None
+}
+
+/// 在 JS 对象字面量中读取顶层键对应的数值。
+/// 追踪嵌套深度和字符串区域，仅在 depth==1 且非字符串内匹配标识符，
+/// 确保不会误读字符串值中同名标识符后的数值。
+fn read_top_level_number(obj: &str, key: &str) -> Option<f64> {
+    let bytes = obj.as_bytes();
+    let key_bytes = key.as_bytes();
+    let mut pos = 0;
+    let mut depth = 0u32;
+
+    while pos + key_bytes.len() <= bytes.len() {
+        let b = bytes[pos];
+        match b {
+            b'{' => {
+                depth += 1;
+                pos += 1;
+                continue;
+            }
+            b'}' => {
+                depth = depth.saturating_sub(1);
+                pos += 1;
+                continue;
+            }
+            b'"' | b'\'' | b'`' => {
+                let quote = b;
+                pos += 1;
+                while pos < bytes.len() {
+                    if bytes[pos] == b'\\' {
+                        pos += 1;
+                    } else if bytes[pos] == quote {
+                        break;
+                    }
+                    pos += 1;
+                }
+                pos += 1;
+                continue;
+            }
+            _ => {}
+        }
+
+        if depth == 1 && &bytes[pos..pos + key_bytes.len()] == key_bytes {
+            let after = pos + key_bytes.len();
+            if after < bytes.len()
+                && (bytes[after].is_ascii_alphanumeric()
+                    || bytes[after] == b'_'
+                    || bytes[after] == b'$')
+            {
+                pos += 1;
+                continue;
+            }
+            let mut colon_pos = after;
+            while colon_pos < bytes.len()
+                && bytes[colon_pos].is_ascii_whitespace()
+            {
+                colon_pos += 1;
+            }
+            if colon_pos < bytes.len() && bytes[colon_pos] == b':' {
+                let mut num_pos = colon_pos + 1;
+                while num_pos < bytes.len()
+                    && bytes[num_pos].is_ascii_whitespace()
+                {
+                    num_pos += 1;
+                }
+                let num_start = num_pos;
+                while num_pos < bytes.len()
+                    && (bytes[num_pos].is_ascii_digit()
+                        || matches!(bytes[num_pos], b'-' | b'+' | b'.' | b'e' | b'E'))
+                {
+                    num_pos += 1;
+                }
+                if num_pos > num_start {
+                    let num_str =
+                        std::str::from_utf8(&bytes[num_start..num_pos]).ok()?;
+                    let num = num_str.parse::<f64>().ok()?;
+                    if num.is_finite() {
+                        return Some(num);
+                    }
+                }
+            }
+        }
+        pos += 1;
+    }
+    None
 }
 
 fn parse_window(
-    html: &str,
+    scripts: &[&str],
     name: &str,
     limit_usd: f64,
     now: DateTime<Utc>,
 ) -> Option<OpenCodeGoWindow> {
-    let mut search_from = 0;
-    while let Some(relative_index) = html[search_from..].find(name) {
-        let name_index = search_from + relative_index;
-        let value_tail = html[name_index + name.len()..].trim_start();
-        let Some(object_tail) = value_tail.strip_prefix(':') else {
-            search_from = name_index + name.len();
+    for script in scripts {
+        if !script.contains(name) {
             continue;
-        };
-        if let Some(object_start) = object_tail.find('{') {
-            let reference = &object_tail[..object_start];
-            if reference.chars().any(|c| {
+        }
+        let mut search_from = 0;
+        while let Some(idx) = script[search_from..].find(name) {
+            let name_index = search_from + idx;
+            search_from = name_index + name.len();
+
+            let tail = &script[name_index + name.len()..];
+            let Some(brace_offset) = tail.find('{') else {
+                continue;
+            };
+            let prefix = &tail[..brace_offset];
+            if prefix.chars().any(|c| {
                 !(c.is_ascii_alphanumeric()
                     || c.is_ascii_whitespace()
-                    || matches!(c, '$' | '[' | ']' | '_' | '-' | '.' | '='))
+                    || matches!(c, ':' | '$' | '[' | ']' | '_' | '-' | '.' | '='))
             }) {
-                search_from = name_index + name.len();
                 continue;
             }
-            let object_tail = &object_tail[object_start + 1..];
-            if let Some(object_end) = object_tail.find('}') {
-                let object = &object_tail[..object_end];
-                if let (Some(used_percent), Some(reset_seconds)) = (
-                    extract_number(object, "usagePercent"),
-                    extract_number(object, "resetInSec"),
-                ) {
-                    let used_percent = used_percent.clamp(0.0, 100.0);
-                    let reset_seconds = reset_seconds.max(0.0).round() as i64;
-                    let reset_time = now
-                        .checked_add_signed(ChronoDuration::seconds(reset_seconds))
-                        .unwrap_or(now)
-                        .to_rfc3339();
-                    return Some(OpenCodeGoWindow {
-                        limit_usd,
-                        used_usd: limit_usd * used_percent / 100.0,
-                        used_percent,
-                        remaining_percent: (100.0 - used_percent) / 100.0,
-                        reset_time,
-                    });
-                }
+            let abs_brace = name_index + name.len() + brace_offset;
+            let Some(obj) = find_balanced_object(script, abs_brace) else {
+                continue;
+            };
+
+            if let (Some(used_percent), Some(reset_seconds)) = (
+                read_top_level_number(obj, "usagePercent"),
+                read_top_level_number(obj, "resetInSec"),
+            ) {
+                let used_percent = used_percent.clamp(0.0, 100.0);
+                let reset_seconds = reset_seconds.max(0.0).round() as i64;
+                let reset_time = now
+                    .checked_add_signed(ChronoDuration::seconds(reset_seconds))
+                    .unwrap_or(now)
+                    .to_rfc3339();
+                return Some(OpenCodeGoWindow {
+                    limit_usd,
+                    used_usd: limit_usd * used_percent / 100.0,
+                    used_percent,
+                    remaining_percent: (100.0 - used_percent) / 100.0,
+                    reset_time,
+                });
             }
         }
-        search_from = name_index + name.len();
     }
     None
 }
@@ -199,9 +335,17 @@ pub fn parse_dashboard_at(
     html: &str,
     now: DateTime<Utc>,
 ) -> Result<OpenCodeGoUsage, OpenCodeGoError> {
-    let five_hour = parse_window(html, "rollingUsage", FIVE_HOUR_LIMIT_USD, now);
-    let weekly = parse_window(html, "weeklyUsage", WEEKLY_LIMIT_USD, now);
-    let monthly = parse_window(html, "monthlyUsage", MONTHLY_LIMIT_USD, now);
+    let extracted = extract_script_contents(html);
+    // 如果页面没有 <script> 标签，将整份 HTML 视为搜索空间，
+    // 兼容纯 JavaScript 文本或测试 fixture。
+    let scripts: Vec<&str> = if extracted.is_empty() {
+        vec![html]
+    } else {
+        extracted
+    };
+    let five_hour = parse_window(&scripts, "rollingUsage", FIVE_HOUR_LIMIT_USD, now);
+    let weekly = parse_window(&scripts, "weeklyUsage", WEEKLY_LIMIT_USD, now);
+    let monthly = parse_window(&scripts, "monthlyUsage", MONTHLY_LIMIT_USD, now);
     if five_hour.is_none() && weekly.is_none() && monthly.is_none() {
         return Err(OpenCodeGoError::Parse(
             "页面中未找到 rollingUsage / weeklyUsage / monthlyUsage".into(),
