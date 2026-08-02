@@ -2,6 +2,20 @@
 
 [中文](CHANGELOG.md) | English
 
+## [Unreleased]
+
+## [0.1.2] - 2026-08-02
+
+### Added
+
+- **In-app updates**: shows release notes when a new version is found and lets the user choose whether to download it in the background; Tauri verifies the package signature before offering immediate or deferred installation
+
+### Improved
+
+- **Refresh performance**: monthly usage and OpenCode Go now share short-lived cross-window caches and coalesce concurrent requests; quota polling and manual refreshes reuse in-flight work, while panel initialization and all four data sources refresh concurrently
+- **Rendering performance**: quota countdowns share clocks, cards and model trends avoid redundant renders, hovering the trend chart no longer recalculates static paths, and off-screen cards defer painting
+- **UI details**: unified panel spacing, focus states, settings grouping, and numeric alignment, and fixed the model trend plot alignment with its legend text
+
 ## [0.1.1] - 2026-08-02
 
 ### Added
