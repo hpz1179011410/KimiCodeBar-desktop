@@ -2,7 +2,7 @@
 
 [中文](CHANGELOG.md) | English
 
-## [Unreleased]
+## [0.1.1] - 2026-08-02
 
 ### Added
 
@@ -13,6 +13,7 @@
 - **Refresh performance**: Kimi quota, local usage, monthly usage, and OpenCode Go now refresh concurrently; CNY exchange rates use stale-while-revalidate, returning cached values immediately, updating expired data in the background, and waiting at most 2 seconds on the first uncached request
 - **Kimi subscription card**: the separate weekly, 5-hour, monthly, and booster cards are combined into the same compact layout as OpenCode Go; existing card order migrates automatically while all four rows can be independently toggled and reordered
 - **Desktop widget**: now directly reuses the combined Kimi and OpenCode Go subscription cards, sharing quota-row visibility and ordering with the main panel; legacy monthly, weekly, and 5-hour widget settings migrate automatically
+- **Uninstall cleanup**: Windows releases now use NSIS consistently; uninstalling removes autostart residue, and selecting “Delete application data” also removes KimiCodeBar settings and Windows credentials while strictly preserving the Kimi CLI shared `~/.kimi-code`, `KIMI_CODE_HOME`, and session data
 
 ## [0.1.0] - 2026-07-31
 
