@@ -25,7 +25,7 @@ A cross-platform desktop usage monitor for [Kimi Code](https://github.com/Moonsh
 - **Auto session archiving**: archive old sessions by threshold (1 day / 1 week / 1 month), with manual archive / unarchive
 - **Desktop widget**: directly reuses the combined Kimi / OpenCode Go subscription cards and follows the panel's quota-row visibility and ordering; draggable with position memory, with both subscription cards toggleable and reorderable
 - **Skills browser**: view skill definitions under `~/.kimi-code/skills`
-- **Update checks**: detect new Kimi Code CLI versions and new app releases
+- **In-app updates**: detects new Kimi Code CLI and app versions, shows release notes before offering a background download, verifies the signature, then lets the user install now or later
 - **Experience**: Chinese / English UI, dark / light / system theme, launch at login, card entrance animations with `prefers-reduced-motion` support, shimmer loading on refresh, scroll-on-demand scrollbar
 
 ## Tech Stack
@@ -60,7 +60,7 @@ At runtime, credential storage requires a D-Bus session bus and a Secret Service
 - OAuth Device Flow follows the official Kimi Code CLI flow; credentials are stored separately from the CLI and never interfere with it
 - Local usage scanning **reads only** `~/.kimi-code/sessions/**/wire.jsonl`, with incremental parsing (persisted byte offsets)
 - The OpenCode Go Workspace ID and `auth` cookie are stored only in the system keyring; refreshes access only the user's own `opencode.ai/workspace/{id}/go` page
-- Network requests go only to Kimi (`api.kimi.com` / `auth.kimi.com` / `www.kimi.com`), OpenCode (`opencode.ai`), the ECB (`ecb.europa.eu`, daily reference rates), and GitHub (update checks)
+- Network requests go only to Kimi (`api.kimi.com` / `auth.kimi.com` / `www.kimi.com`), OpenCode (`opencode.ai`), the ECB (`ecb.europa.eu`, daily reference rates), and GitHub (update checks and signed installer downloads)
 
 ## Development
 

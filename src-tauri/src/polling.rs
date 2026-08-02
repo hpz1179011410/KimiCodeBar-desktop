@@ -2,7 +2,7 @@
 //! 向 main 窗口 emit `quota-updated`，并按低额状态切换托盘图标；
 //! 401 时清凭证、重置托盘图标并 emit `login-expired`。
 
-use std::time::Duration;
+use std::time::{Duration, Instant};
 use tauri::{AppHandle, Emitter, Manager};
 
 use crate::kimi::client::{self, QuotaError};
@@ -42,8 +42,24 @@ pub fn start(app: AppHandle) {
 
 /// 立即执行一次配额刷新。返回最新 QuotaInfo 或错误描述。
 pub async fn poll_once(app: &AppHandle) -> Result<QuotaInfo, String> {
+    let requested_at = Instant::now();
+    let state = app.state::<AppState>();
+    let _refresh_guard = state.quota_refresh_lock.lock().await;
+
+    // 若等待锁期间另一请求已经刷新成功，直接复用结果，避免定时轮询与手动刷新
+    // 在同一时刻连续访问配额接口。
+    let refreshed_after_request = state
+        .quota_refresh_at
+        .lock()
+        .unwrap()
+        .is_some_and(|completed_at| completed_at >= requested_at);
+    if refreshed_after_request {
+        if let Some(info) = state.quota.read().unwrap().clone() {
+            return Ok(info);
+        }
+    }
+
     let (http, device, config_dir, settings) = {
-        let state = app.state::<AppState>();
         let settings = state.settings.read().unwrap().clone();
         (
             state.http.clone(),
@@ -61,8 +77,8 @@ pub async fn poll_once(app: &AppHandle) -> Result<QuotaInfo, String> {
         Ok(wire) => {
             let info = quota::parse_usage(&wire);
             {
-                let state = app.state::<AppState>();
                 *state.quota.write().unwrap() = Some(info.clone());
+                *state.quota_refresh_at.lock().unwrap() = Some(Instant::now());
                 tray::set_quota_icon(&state, &info);
             }
             let _ = app.emit(EVENT_QUOTA_UPDATED, &info);
@@ -78,7 +94,6 @@ pub async fn poll_once(app: &AppHandle) -> Result<QuotaInfo, String> {
                 }
             }
             {
-                let state = app.state::<AppState>();
                 *state.quota.write().unwrap() = None;
                 tray::reset_icon(&state);
             }

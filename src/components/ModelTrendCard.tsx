@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { memo, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import type { LocalUsageReport, ModelDayUsage, ModelTrend } from "../types";
 import { formatTokens, shortDate } from "../lib/format";
@@ -7,8 +7,9 @@ type TrendMetric = "tokens" | "cache";
 
 const WIDTH = 300;
 const HEIGHT = 132;
-const LEFT = 38;
-const RIGHT = 8;
+// 与图例行的模型文字、右侧用量文字对齐，避免绘图区视觉上向右缩进。
+const LEFT = 18;
+const RIGHT = 4;
 const TOP = 10;
 const BOTTOM = 22;
 const PLOT_WIDTH = WIDTH - LEFT - RIGHT;
@@ -69,14 +70,58 @@ function formatRate(rate: number | null, fallback: string) {
     return rate == null ? fallback : `${(rate * 100).toFixed(1)}%`;
 }
 
+/** 折线几何与悬停状态无关，拆出 memo 层，移动鼠标时不重复计算全部模型路径。 */
+const TrendSeriesLayer = memo(function TrendSeriesLayer({
+    trends,
+    metric,
+    maxValue,
+}: {
+    trends: ModelTrend[];
+    metric: TrendMetric;
+    maxValue: number;
+}) {
+    return trends.map((trend, trendIndex) => {
+        const color = SERIES_COLORS[trendIndex % SERIES_COLORS.length];
+        return (
+            <g key={`${metric}:${trend.is_secondary}:${trend.model}`}>
+                {seriesSegments(trend, metric, maxValue).map((segment, index) => (
+                    <path
+                        className="trend-line"
+                        style={{ stroke: color }}
+                        pathLength={1}
+                        d={linePath(segment)}
+                        key={index}
+                    />
+                ))}
+                {trend.days.map((day, dayIndex) => {
+                    const value = metricValue(day, metric);
+                    return value == null ? null : (
+                        <circle
+                            className="trend-point"
+                            style={{ fill: color }}
+                            cx={pointX(dayIndex, trend.days.length)}
+                            cy={pointY(value, maxValue)}
+                            r="3"
+                            key={day.date}
+                        />
+                    );
+                })}
+            </g>
+        );
+    });
+});
+
 function CombinedTrendChart({ trends, metric }: { trends: ModelTrend[]; metric: TrendMetric }) {
     const { t } = useTranslation();
     const [hoveredIndex, setHoveredIndex] = useState<number | null>(null);
     const days = trends[0]?.days ?? [];
-    const maxValue =
-        metric === "tokens"
-            ? Math.max(1, ...trends.flatMap((trend) => trend.days.map((day) => day.tokens)))
-            : 1;
+    const maxValue = useMemo(
+        () =>
+            metric === "tokens"
+                ? Math.max(1, ...trends.flatMap((trend) => trend.days.map((day) => day.tokens)))
+                : 1,
+        [metric, trends],
+    );
     const topLabel = metric === "tokens" ? formatTokens(maxValue) : "100%";
     const bottomLabel = metric === "tokens" ? "0" : "0%";
     const hoveredDay = hoveredIndex == null ? null : days[hoveredIndex];
@@ -123,35 +168,7 @@ function CombinedTrendChart({ trends, metric }: { trends: ModelTrend[]; metric: 
                     {bottomLabel}
                 </text>
 
-                {trends.map((trend, trendIndex) => {
-                    const color = SERIES_COLORS[trendIndex % SERIES_COLORS.length];
-                    return (
-                        <g key={`${metric}:${trend.is_secondary}:${trend.model}`}>
-                            {seriesSegments(trend, metric, maxValue).map((segment, index) => (
-                                <path
-                                    className="trend-line"
-                                    style={{ stroke: color }}
-                                    pathLength={1}
-                                    d={linePath(segment)}
-                                    key={index}
-                                />
-                            ))}
-                            {trend.days.map((day, dayIndex) => {
-                                const value = metricValue(day, metric);
-                                return value == null ? null : (
-                                    <circle
-                                        className="trend-point"
-                                        style={{ fill: color }}
-                                        cx={pointX(dayIndex, trend.days.length)}
-                                        cy={pointY(value, maxValue)}
-                                        r="3"
-                                        key={day.date}
-                                    />
-                                );
-                            })}
-                        </g>
-                    );
-                })}
+                <TrendSeriesLayer trends={trends} metric={metric} maxValue={maxValue} />
 
                 {hoveredIndex != null && (
                     <line
@@ -228,7 +245,7 @@ function CombinedTrendChart({ trends, metric }: { trends: ModelTrend[]; metric: 
     );
 }
 
-export default function ModelTrendCard({
+function ModelTrendCard({
     report,
     loading = false,
 }: {
@@ -304,3 +321,5 @@ export default function ModelTrendCard({
         </section>
     );
 }
+
+export default memo(ModelTrendCard);

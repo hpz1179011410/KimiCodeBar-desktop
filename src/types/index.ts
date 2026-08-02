@@ -191,6 +191,19 @@ export interface AppUpdateInfo {
     error: string | null;
 }
 
+export interface AppUpdateMetadata {
+    current: string;
+    latest: string;
+    notes: string;
+    published_at: string | null;
+    release_url: string;
+}
+
+export type AppDownloadEvent =
+    | { event: "started"; data: { content_length: number | null } }
+    | { event: "progress"; data: { chunk_length: number } }
+    | { event: "finished" };
+
 export interface MonthlyInfo {
     /** 月度总额度已用百分比 */
     total_pct: number;

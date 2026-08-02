@@ -1,16 +1,25 @@
+import { memo } from "react";
 import { useTranslation } from "react-i18next";
 import { formatYuan } from "../lib/format";
 import type { BoosterInfo, KimiSubscriptionRowKey, MonthlyInfo, QuotaWindow } from "../types";
-import { useResetText } from "./UsageCard";
+import { formatResetText, useNow } from "./UsageCard";
 
 function formatPercent(value: number): string {
     const rounded = Math.round(value * 100) / 100;
     return Number.isInteger(rounded) ? String(rounded) : rounded.toFixed(2);
 }
 
-function RemainingQuotaRow({ title, window }: { title: string; window: QuotaWindow | null }) {
+function RemainingQuotaRow({
+    title,
+    window,
+    now,
+}: {
+    title: string;
+    window: QuotaWindow | null;
+    now: number;
+}) {
     const { t } = useTranslation();
-    const resetText = useResetText(window?.reset_time ?? null);
+    const resetText = formatResetText(window?.reset_time ?? null, now, t);
 
     if (!window) {
         return (
@@ -52,14 +61,16 @@ function RemainingQuotaRow({ title, window }: { title: string; window: QuotaWind
 function MonthlyQuotaRow({
     info,
     error,
+    now,
     onOpenSettings,
 }: {
     info: MonthlyInfo | null;
     error: string | null;
+    now: number;
     onOpenSettings?: () => void;
 }) {
     const { t } = useTranslation();
-    const resetText = useResetText(info?.reset_time ?? null);
+    const resetText = formatResetText(info?.reset_time ?? null, now, t);
 
     if (error) {
         const expired = error.startsWith("网页登录态无效或已过期");
@@ -163,7 +174,7 @@ function BoosterQuotaRow({ booster }: { booster: BoosterInfo | null }) {
     );
 }
 
-export default function KimiSubscriptionCard({
+function KimiSubscriptionCard({
     weekly,
     fiveHour,
     monthly,
@@ -191,6 +202,7 @@ export default function KimiSubscriptionCard({
     onOpenSettings?: () => void;
 }) {
     const { t } = useTranslation();
+    const now = useNow();
 
     return (
         <section className={`card subscription-card${loading ? " loading" : ""}`}>
@@ -203,6 +215,7 @@ export default function KimiSubscriptionCard({
                                 key={row}
                                 title={t("panel.weekly")}
                                 window={weekly}
+                                now={now}
                             />
                         ) : null;
                     case "five_hour":
@@ -211,6 +224,7 @@ export default function KimiSubscriptionCard({
                                 key={row}
                                 title={t("panel.fiveHour")}
                                 window={fiveHour}
+                                now={now}
                             />
                         ) : null;
                     case "monthly":
@@ -219,6 +233,7 @@ export default function KimiSubscriptionCard({
                                 key={row}
                                 info={monthly}
                                 error={monthlyError}
+                                now={now}
                                 onOpenSettings={onOpenSettings}
                             />
                         ) : null;
@@ -229,3 +244,5 @@ export default function KimiSubscriptionCard({
         </section>
     );
 }
+
+export default memo(KimiSubscriptionCard);

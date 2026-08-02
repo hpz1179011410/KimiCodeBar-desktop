@@ -33,18 +33,43 @@ jobs:
             - name: 安装前端依赖
               run: npm ci
 
+            - name: 提取当前版本更新日志
+              id: release_notes
+              shell: pwsh
+              run: |
+                  $version = "${{ github.ref_name }}".TrimStart("v")
+                  $lines = Get-Content CHANGELOG.md -Encoding utf8
+                  $heading = "^## \[$([regex]::Escape($version))\]"
+                  $start = 0..($lines.Count - 1) | Where-Object { $lines[$_] -match $heading } | Select-Object -First 1
+                  if ($null -eq $start) {
+                      throw "CHANGELOG.md 中缺少版本 $version 的更新日志"
+                  }
+                  $next = (($start + 1)..($lines.Count - 1) | Where-Object { $lines[$_] -match '^## \[' } | Select-Object -First 1)
+                  $end = if ($null -eq $next) { $lines.Count } else { $next }
+                  $body = ($lines[$start..($end - 1)] -join "`n").Trim()
+                  "body<<KIMICODEBAR_RELEASE_NOTES" >> $env:GITHUB_OUTPUT
+                  $body >> $env:GITHUB_OUTPUT
+                  "KIMICODEBAR_RELEASE_NOTES" >> $env:GITHUB_OUTPUT
+
+            - name: 检查更新签名密钥
+              shell: pwsh
+              env:
+                  TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+              run: |
+                  if ([string]::IsNullOrWhiteSpace($env:TAURI_SIGNING_PRIVATE_KEY)) {
+                      throw "仓库 Secret TAURI_SIGNING_PRIVATE_KEY 尚未配置"
+                  }
+
             - name: 构建并上传到 Release
               uses: tauri-apps/tauri-action@v0
               env:
                   GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+                  TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
               with:
                   tagName: ${{ github.ref_name }}
                   releaseName: "KimiCodeBar ${{ github.ref_name }}"
-                  releaseBody: |
-                      ## 下载
-
-                      - **Windows**：`KimiCodeBar_x.x.x_x64-setup.exe`（NSIS，当前用户安装，无需管理员权限）
-
-                      详细变更见 [CHANGELOG.md](CHANGELOG.md)。
+                  releaseBody: ${{ steps.release_notes.outputs.body }}
                   releaseDraft: true
                   prerelease: false
+                  includeUpdaterJson: true
+                  updaterJsonPreferNsis: true

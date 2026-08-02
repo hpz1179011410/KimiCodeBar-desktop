@@ -7,6 +7,7 @@ import { applyTheme } from "../lib/theme";
 import * as ipc from "../lib/ipc";
 import { formatDateTime } from "../lib/format";
 import ConfirmDialog from "../components/ConfirmDialog";
+import AppUpdateDialog from "../components/AppUpdateDialog";
 import type {
     AppSettings,
     AppUpdateInfo,
@@ -37,19 +38,38 @@ export function SettingsApp() {
     const [settings, setSettings] = useState<AppSettings | null>(null);
     const [loginState, setLoginState] = useState<LoginState | null>(null);
     const [credentialsRevision, setCredentialsRevision] = useState(0);
+    const [appUpdateInfo, setAppUpdateInfo] = useState<AppUpdateInfo | null>(null);
+    const [updateDialogOpen, setUpdateDialogOpen] = useState(false);
+
+    const showAppUpdate = useCallback((info: AppUpdateInfo) => {
+        setAppUpdateInfo(info);
+        setUpdateDialogOpen(true);
+    }, []);
+
+    const reloadLoginState = useCallback(async () => {
+        try {
+            setLoginState(await ipc.getLoginState());
+        } catch {
+            /* ignore */
+        }
+    }, []);
 
     useEffect(() => {
         void (async () => {
-            try {
-                const s = await ipc.getSettings();
-                setSettings(s);
-                applyTheme(s.theme);
-                applyLanguage(s.language);
-            } catch {
+            const [settingsResult, loginResult] = await Promise.allSettled([
+                ipc.getSettings(),
+                ipc.getLoginState(),
+            ]);
+            if (settingsResult.status === "fulfilled") {
+                const next = settingsResult.value;
+                setSettings(next);
+                applyTheme(next.theme);
+                applyLanguage(next.language);
+            } else {
                 applyTheme("system");
                 applyLanguage("system");
             }
-            await reloadLoginState();
+            if (loginResult.status === "fulfilled") setLoginState(loginResult.value);
         })();
 
         // 订阅设置变更：widget 窗口被关闭等场景后端广播 settings-changed，
@@ -79,15 +99,7 @@ export function SettingsApp() {
             mounted = false;
             unlisteners.forEach((u) => u());
         };
-    }, []);
-
-    const reloadLoginState = useCallback(async () => {
-        try {
-            setLoginState(await ipc.getLoginState());
-        } catch {
-            /* ignore */
-        }
-    }, []);
+    }, [reloadLoginState]);
 
     /** 即改即存：合并补丁并持久化。 */
     const patch = useCallback((partial: Partial<AppSettings>) => {
@@ -141,8 +153,13 @@ export function SettingsApp() {
                 {page === "panel" && <PanelPage settings={settings} patch={patch} />}
                 {page === "archive" && <ArchivePage settings={settings} patch={patch} />}
                 {page === "skills" && <SkillsPage />}
-                {page === "about" && <AboutPage />}
+                {page === "about" && <AboutPage onUpdateFound={showAppUpdate} />}
             </main>
+            <AppUpdateDialog
+                open={updateDialogOpen}
+                info={appUpdateInfo}
+                onClose={() => setUpdateDialogOpen(false)}
+            />
         </div>
     );
 }
@@ -1181,7 +1198,7 @@ function SkillsPage() {
 
 // ---------- 关于 ----------
 
-function AboutPage() {
+function AboutPage({ onUpdateFound }: { onUpdateFound: (info: AppUpdateInfo) => void }) {
     const { t } = useTranslation();
     const [info, setInfo] = useState<AppUpdateInfo | null>(null);
     const [checking, setChecking] = useState(false);
@@ -1190,9 +1207,12 @@ function AboutPage() {
     useEffect(() => {
         void ipc
             .checkAppUpdate(false)
-            .then(setInfo)
+            .then((next) => {
+                setInfo(next);
+                if (next.update_available) onUpdateFound(next);
+            })
             .catch(() => undefined);
-    }, []);
+    }, [onUpdateFound]);
 
     useEffect(() => {
         if (!checked || !info || info.update_available) return;
@@ -1203,8 +1223,10 @@ function AboutPage() {
     const check = async () => {
         setChecking(true);
         try {
-            setInfo(await ipc.checkAppUpdate(true));
+            const next = await ipc.checkAppUpdate(true);
+            setInfo(next);
             setChecked(true);
+            if (next.update_available) onUpdateFound(next);
         } catch {
             /* ignore */
         } finally {
@@ -1253,7 +1275,7 @@ function AboutPage() {
                     {info.update_available && info.latest ? (
                         <button
                             className="about-update-toast ok clickable"
-                            onClick={() => void ipc.openUrl(info.release_url)}
+                            onClick={() => onUpdateFound(info)}
                         >
                             <span className="about-update-toast-icon">↗</span>
                             <span>{t("about.newVersion", { version: info.latest })}</span>

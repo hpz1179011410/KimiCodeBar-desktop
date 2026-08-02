@@ -1,3 +1,4 @@
+import { memo } from "react";
 import { useTranslation } from "react-i18next";
 import type {
     OpenCodeGoExchangeRate,
@@ -5,7 +6,7 @@ import type {
     OpenCodeGoUsage,
     OpenCodeGoWindow,
 } from "../types";
-import { useResetText } from "./UsageCard";
+import { formatResetText, useNow } from "./UsageCard";
 
 function formatNumber(value: number, digits = 2): string {
     const rounded = Math.round(value * 10 ** digits) / 10 ** digits;
@@ -16,13 +17,15 @@ function QuotaRow({
     title,
     window,
     exchangeRate,
+    now,
 }: {
     title: string;
     window: OpenCodeGoWindow | null;
     exchangeRate: OpenCodeGoExchangeRate | null;
+    now: number;
 }) {
     const { t } = useTranslation();
-    const resetText = useResetText(window?.reset_time ?? null);
+    const resetText = formatResetText(window?.reset_time ?? null, now, t);
 
     if (!window) {
         return (
@@ -79,7 +82,7 @@ function QuotaRow({
     );
 }
 
-export default function OpenCodeGoCard({
+function OpenCodeGoCard({
     usage,
     error,
     showFiveHour,
@@ -99,6 +102,7 @@ export default function OpenCodeGoCard({
     onOpenSettings?: () => void;
 }) {
     const { t } = useTranslation();
+    const now = useNow();
 
     if (error) {
         return (
@@ -134,6 +138,7 @@ export default function OpenCodeGoCard({
                                 title={t("panel.openCodeGoFiveHour")}
                                 window={usage.five_hour}
                                 exchangeRate={usage.exchange_rate}
+                                now={now}
                             />
                         ) : null;
                     case "weekly":
@@ -143,6 +148,7 @@ export default function OpenCodeGoCard({
                                 title={t("panel.openCodeGoWeekly")}
                                 window={usage.weekly}
                                 exchangeRate={usage.exchange_rate}
+                                now={now}
                             />
                         ) : null;
                     case "monthly":
@@ -152,6 +158,7 @@ export default function OpenCodeGoCard({
                                 title={t("panel.openCodeGoMonthly")}
                                 window={usage.monthly}
                                 exchangeRate={usage.exchange_rate}
+                                now={now}
                             />
                         ) : null;
                 }
@@ -159,3 +166,5 @@ export default function OpenCodeGoCard({
         </section>
     );
 }
+
+export default memo(OpenCodeGoCard);

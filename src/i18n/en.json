@@ -197,7 +197,7 @@
         "checkUpdate": "Check for updates",
         "checking": "Checking…",
         "upToDate": "Up to date",
-        "newVersion": "New version {{version}} available, click to download",
+        "newVersion": "New version {{version}} available, click to view release notes",
         "checkFailed": "Check failed: {{msg}}",
         "acknowledgments": "Acknowledgments",
         "originalProject": "The original macOS project and the source of this product's concept and feature design. Thanks to ",
@@ -205,5 +205,23 @@
         "windowsReferenceBefore": "Thanks to ",
         "windowsReferenceAfter": ". This project's Kimi API details reference its public implementation and test fixtures",
         "officialProject": "The official Kimi Code CLI project."
+    },
+    "update": {
+        "available": "Version {{version}} is available",
+        "versionChange": "{{current}} → {{latest}}",
+        "releaseNotes": "Release notes",
+        "loadingNotes": "Loading release notes…",
+        "notNow": "Not now",
+        "downloadInBackground": "Download in background",
+        "downloading": "Downloading update in background",
+        "downloadingVersion": "Downloading {{version}}",
+        "downloadComplete": "Update downloaded",
+        "readyToInstall": "The app will close when installation starts. Reopen KimiCodeBar after it finishes.",
+        "installLater": "Install later",
+        "installNow": "Install now",
+        "installing": "Starting installer…",
+        "failed": "Update failed: {{msg}}",
+        "noLongerAvailable": "No installable update is currently available",
+        "openReleasePage": "Open download page"
     }
 }

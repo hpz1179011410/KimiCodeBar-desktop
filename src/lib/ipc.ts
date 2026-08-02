@@ -1,11 +1,13 @@
 // 全部 Tauri invoke 封装 + 事件 listen 封装。
 // 命令名 / 参数名 / 事件名与 src-tauri/src/commands.rs、lib.rs、polling.rs 严格对齐。
 
-import { invoke } from "@tauri-apps/api/core";
+import { Channel, invoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import type {
     AppSettings,
+    AppDownloadEvent,
     AppUpdateInfo,
+    AppUpdateMetadata,
     ArchiveOverview,
     CliUpdateInfo,
     DeviceLoginStart,
@@ -39,14 +41,15 @@ export const getQuota = () => invoke<QuotaInfo | null>("get_quota");
 export const setWebToken = (token: string) => invoke<MonthlyInfo>("set_web_token", { token });
 export const clearWebToken = () => invoke<void>("clear_web_token");
 export const getWebTokenConfigured = () => invoke<boolean>("get_web_token_configured");
-export const getMonthly = () => invoke<MonthlyInfo>("get_monthly");
+export const getMonthly = (force = false) => invoke<MonthlyInfo>("get_monthly", { force });
 
 // ---- OpenCode Go 订阅配额（Workspace Dashboard） ----
 export const setOpenCodeGoCredentials = (workspaceId: string, authCookie: string) =>
     invoke<OpenCodeGoUsage>("set_opencode_go_credentials", { workspaceId, authCookie });
 export const clearOpenCodeGoCredentials = () => invoke<void>("clear_opencode_go_credentials");
 export const getOpenCodeGoConfigured = () => invoke<boolean>("get_opencode_go_configured");
-export const getOpenCodeGoUsage = () => invoke<OpenCodeGoUsage>("get_opencode_go_usage");
+export const getOpenCodeGoUsage = (force = false) =>
+    invoke<OpenCodeGoUsage>("get_opencode_go_usage", { force });
 
 // ---- 本地用量 ----
 export const getLocalUsage = () => invoke<LocalUsageReport | null>("get_local_usage");
@@ -67,6 +70,14 @@ export const revealInExplorer = (path: string) => invoke<void>("reveal_in_explor
 export const checkCliUpdate = () => invoke<CliUpdateInfo>("check_cli_update");
 export const checkAppUpdate = (force = false) =>
     invoke<AppUpdateInfo>("check_app_update", { force });
+export const prepareAppUpdate = () => invoke<AppUpdateMetadata | null>("prepare_app_update");
+export const downloadAppUpdate = (onEvent: (event: AppDownloadEvent) => void) => {
+    const channel = new Channel<AppDownloadEvent>();
+    channel.onmessage = onEvent;
+    return invoke<void>("download_app_update", { onEvent: channel });
+};
+export const installAppUpdate = () => invoke<void>("install_app_update");
+export const discardAppUpdate = () => invoke<void>("discard_app_update");
 
 // ---- 其他 ----
 export const openUrl = (url: string) => invoke<void>("open_url", { url });

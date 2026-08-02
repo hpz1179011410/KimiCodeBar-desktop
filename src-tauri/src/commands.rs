@@ -2,7 +2,7 @@
 
 use serde::Serialize;
 use std::time::{Duration, Instant};
-use tauri::{AppHandle, Emitter, Manager, State};
+use tauri::{ipc::Channel, AppHandle, Emitter, Manager, State};
 use tauri_plugin_opener::OpenerExt;
 use tokio::sync::watch;
 
@@ -11,7 +11,7 @@ use crate::local_usage::{self, LocalUsageReport};
 use crate::opencode_go::{self, OpenCodeGoUsage};
 use crate::quota::QuotaInfo;
 use crate::storage::{self, AppSettings, LoginMethod, UpdateCheckCache};
-use crate::update::{self, AppUpdateInfo, CliUpdateInfo};
+use crate::update::{self, AppDownloadEvent, AppUpdateInfo, AppUpdateMetadata, CliUpdateInfo};
 use crate::{archive, creds, polling, skills, AppState};
 
 pub const EVENT_LOGIN_SUCCESS: &str = "login-success";
@@ -20,6 +20,8 @@ pub const EVENT_LOGIN_ERROR: &str = "login-error";
 pub const EVENT_CREDENTIALS_CLEARED: &str = "credentials-cleared";
 /// 设置保存成功后广播（widget 窗口监听，即时刷新卡片配置）
 pub const EVENT_SETTINGS_CHANGED: &str = "settings-changed";
+/// 主面板与小部件共享的扩展额度短时缓存；手动刷新可跳过 TTL。
+const EXTENDED_USAGE_CACHE_TTL: Duration = Duration::from_secs(30);
 
 // ---- 设置 ----
 
@@ -176,6 +178,8 @@ pub fn logout(app: AppHandle, state: State<'_, AppState>) -> Result<(), String> 
         ),
     ];
     *state.quota.write().unwrap() = None;
+    *state.monthly_usage_cache.write().unwrap() = None;
+    *state.opencode_go_usage_cache.write().unwrap() = None;
     crate::tray::reset_icon(state.inner());
     let _ = app.emit(EVENT_CREDENTIALS_CLEARED, ());
 
@@ -226,6 +230,7 @@ pub async fn set_web_token(
     match kimi::web::fetch_subscription_stats(&state.http, &token).await {
         Ok(info) => {
             creds::save_web_token(&token)?;
+            *state.monthly_usage_cache.write().unwrap() = Some((Instant::now(), info.clone()));
             Ok(info)
         }
         Err(kimi::web::WebError::Unauthorized(_)) => {
@@ -238,8 +243,10 @@ pub async fn set_web_token(
 
 /// 清除 web token（不存在也算成功）。
 #[tauri::command]
-pub fn clear_web_token() -> Result<(), String> {
-    creds::delete_web_token()
+pub fn clear_web_token(state: State<'_, AppState>) -> Result<(), String> {
+    let result = creds::delete_web_token();
+    *state.monthly_usage_cache.write().unwrap() = None;
+    result
 }
 
 #[tauri::command]
@@ -250,11 +257,45 @@ pub fn get_web_token_configured() -> Result<bool, String> {
 /// 获取月度用量；未配置 token 或请求失败返回 Err
 /// （401/403 的错误文案以"网页登录态无效或已过期"开头，前端据此区分）。
 #[tauri::command]
-pub async fn get_monthly(state: State<'_, AppState>) -> Result<kimi::web::MonthlyInfo, String> {
+pub async fn get_monthly(
+    state: State<'_, AppState>,
+    force: Option<bool>,
+) -> Result<kimi::web::MonthlyInfo, String> {
     let token = creds::load_web_token().ok_or_else(|| "未配置网页端令牌".to_string())?;
-    kimi::web::fetch_subscription_stats(&state.http, &token)
+    let force = force.unwrap_or(false);
+    let requested_at = Instant::now();
+    if !force {
+        if let Some((_, value)) = state
+            .monthly_usage_cache
+            .read()
+            .unwrap()
+            .as_ref()
+            .filter(|(updated_at, _)| updated_at.elapsed() < EXTENDED_USAGE_CACHE_TTL)
+        {
+            return Ok(value.clone());
+        }
+    }
+
+    let _refresh_guard = state.monthly_usage_refresh.lock().await;
+    if let Some((_, value)) =
+        state
+            .monthly_usage_cache
+            .read()
+            .unwrap()
+            .as_ref()
+            .filter(|(updated_at, _)| {
+                *updated_at >= requested_at
+                    || (!force && updated_at.elapsed() < EXTENDED_USAGE_CACHE_TTL)
+            })
+    {
+        return Ok(value.clone());
+    }
+
+    let info = kimi::web::fetch_subscription_stats(&state.http, &token)
         .await
-        .map_err(|e| e.to_string())
+        .map_err(|e| e.to_string())?;
+    *state.monthly_usage_cache.write().unwrap() = Some((Instant::now(), info.clone()));
+    Ok(info)
 }
 
 // ---- OpenCode Go 订阅配额（Workspace Dashboard） ----
@@ -280,12 +321,15 @@ pub async fn set_opencode_go_credentials(
         workspace_id,
         auth_cookie,
     })?;
+    *state.opencode_go_usage_cache.write().unwrap() = Some((Instant::now(), usage.clone()));
     Ok(usage)
 }
 
 #[tauri::command]
-pub fn clear_opencode_go_credentials() -> Result<(), String> {
-    creds::delete_opencode_go_credentials()
+pub fn clear_opencode_go_credentials(state: State<'_, AppState>) -> Result<(), String> {
+    let result = creds::delete_opencode_go_credentials();
+    *state.opencode_go_usage_cache.write().unwrap() = None;
+    result
 }
 
 #[tauri::command]
@@ -294,17 +338,50 @@ pub fn get_opencode_go_configured() -> Result<bool, String> {
 }
 
 #[tauri::command]
-pub async fn get_opencode_go_usage(state: State<'_, AppState>) -> Result<OpenCodeGoUsage, String> {
+pub async fn get_opencode_go_usage(
+    state: State<'_, AppState>,
+    force: Option<bool>,
+) -> Result<OpenCodeGoUsage, String> {
     let credentials = creds::load_opencode_go_credentials()
         .ok_or_else(|| "未配置 OpenCode Go 订阅".to_string())?;
-    opencode_go::fetch_usage_with_exchange_rate(
+    let force = force.unwrap_or(false);
+    let requested_at = Instant::now();
+    if !force {
+        if let Some((_, value)) = state
+            .opencode_go_usage_cache
+            .read()
+            .unwrap()
+            .as_ref()
+            .filter(|(updated_at, _)| updated_at.elapsed() < EXTENDED_USAGE_CACHE_TTL)
+        {
+            return Ok(value.clone());
+        }
+    }
+
+    let _refresh_guard = state.opencode_go_usage_refresh.lock().await;
+    if let Some((_, value)) = state
+        .opencode_go_usage_cache
+        .read()
+        .unwrap()
+        .as_ref()
+        .filter(|(updated_at, _)| {
+            *updated_at >= requested_at
+                || (!force && updated_at.elapsed() < EXTENDED_USAGE_CACHE_TTL)
+        })
+    {
+        return Ok(value.clone());
+    }
+
+    let usage = opencode_go::fetch_usage_with_exchange_rate(
         &state.http,
         &credentials.workspace_id,
         &credentials.auth_cookie,
         &state.opencode_go_exchange_rate,
     )
     .await
-    .map_err(|e| e.to_string())
+    .map_err(|e| e.to_string())?;
+    *state.opencode_go_usage_cache.write().unwrap() = Some((Instant::now(), usage.clone()));
+    Ok(usage)
 }
 
 // ---- 配额 ----
@@ -478,6 +555,34 @@ pub async fn check_app_update(
             Ok(update::build_app_update_info(None, Some(e)))
         }
     }
+}
+
+/// 获取包含更新日志和签名下载地址的更新清单，并保留待下载对象。
+#[tauri::command]
+pub async fn prepare_app_update(
+    app: AppHandle,
+    state: State<'_, update::AppUpdateState>,
+) -> Result<Option<AppUpdateMetadata>, String> {
+    update::prepare_app_update(&app, &state).await
+}
+
+/// 后台下载更新安装包，通过 Channel 向发起窗口报告进度。
+#[tauri::command]
+pub async fn download_app_update(
+    state: State<'_, update::AppUpdateState>,
+    on_event: Channel<AppDownloadEvent>,
+) -> Result<(), String> {
+    update::download_app_update(&state, on_event).await
+}
+
+#[tauri::command]
+pub fn install_app_update(state: State<'_, update::AppUpdateState>) -> Result<(), String> {
+    update::install_app_update(&state)
+}
+
+#[tauri::command]
+pub fn discard_app_update(state: State<'_, update::AppUpdateState>) -> Result<(), String> {
+    update::discard_app_update(&state)
 }
 
 // ---- 其他 ----

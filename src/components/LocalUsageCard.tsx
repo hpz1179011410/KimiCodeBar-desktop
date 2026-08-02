@@ -1,8 +1,9 @@
+import { memo } from "react";
 import { useTranslation } from "react-i18next";
 import type { LocalUsageReport } from "../types";
 import { formatTokens, localDate, shortDate } from "../lib/format";
 
-export default function LocalUsageCard({
+function LocalUsageCard({
     report,
     loading = false,
 }: {
@@ -110,3 +111,5 @@ export default function LocalUsageCard({
         </section>
     );
 }
+
+export default memo(LocalUsageCard);

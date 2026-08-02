@@ -43,6 +43,9 @@ pub struct AppState {
     pub device: DeviceIdentity,
     pub settings: RwLock<AppSettings>,
     pub quota: RwLock<Option<QuotaInfo>>,
+    /// 合并定时轮询与手动刷新中时间重叠的配额请求。
+    pub quota_refresh_lock: tokio::sync::Mutex<()>,
+    pub quota_refresh_at: Mutex<Option<Instant>>,
     /// 当前是否处于低额告警状态（用于托盘图标切换去抖）
     pub low_quota: AtomicBool,
     pub tray: Mutex<Option<tauri::tray::TrayIcon<tauri::Wry>>>,
@@ -52,6 +55,11 @@ pub struct AppState {
     pub login_cancel: Mutex<Option<watch::Sender<bool>>>,
     pub local_usage: RwLock<Option<LocalUsageReport>>,
     pub local_usage_scan_at: Mutex<Option<Instant>>,
+    /// 月度与 OpenCode Go 在主面板、小部件间共享短时缓存，避免两个 Webview 同时请求。
+    pub monthly_usage_cache: RwLock<Option<(Instant, kimi::web::MonthlyInfo)>>,
+    pub monthly_usage_refresh: tokio::sync::Mutex<()>,
+    pub opencode_go_usage_cache: RwLock<Option<(Instant, opencode_go::OpenCodeGoUsage)>>,
+    pub opencode_go_usage_refresh: tokio::sync::Mutex<()>,
     pub opencode_go_exchange_rate: Arc<Mutex<opencode_go::ExchangeRateCache>>,
 }
 
@@ -490,12 +498,18 @@ pub fn run() {
         device,
         settings: RwLock::new(settings),
         quota: RwLock::new(None),
+        quota_refresh_lock: tokio::sync::Mutex::new(()),
+        quota_refresh_at: Mutex::new(None),
         low_quota: AtomicBool::new(false),
         tray: Mutex::new(None),
         poll_restart,
         login_cancel: Mutex::new(None),
         local_usage: RwLock::new(None),
         local_usage_scan_at: Mutex::new(None),
+        monthly_usage_cache: RwLock::new(None),
+        monthly_usage_refresh: tokio::sync::Mutex::new(()),
+        opencode_go_usage_cache: RwLock::new(None),
+        opencode_go_usage_refresh: tokio::sync::Mutex::new(()),
         opencode_go_exchange_rate: Arc::new(Mutex::new(opencode_go::ExchangeRateCache::default())),
     };
 
@@ -511,6 +525,8 @@ pub fn run() {
         ))
         .plugin(tauri_plugin_opener::init())
         .manage(state)
+        .manage(update::AppUpdateState::default())
+        .plugin(tauri_plugin_updater::Builder::new().build())
         .setup(|app| {
             setup_tray(app)?;
             setup_windows(app);
@@ -578,6 +594,10 @@ pub fn run() {
             commands::reveal_in_explorer,
             commands::check_cli_update,
             commands::check_app_update,
+            commands::prepare_app_update,
+            commands::download_app_update,
+            commands::install_app_update,
+            commands::discard_app_update,
             commands::quit_app,
             commands::open_url,
         ])

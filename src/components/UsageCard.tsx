@@ -1,22 +1,57 @@
-import { useEffect, useState } from "react";
+import { memo, useMemo, useSyncExternalStore } from "react";
 import { useTranslation } from "react-i18next";
+import type { TFunction } from "i18next";
 import type { QuotaWindow } from "../types";
 
-/** 每 intervalMs 触发一次重渲染，用于倒计时类文案。 */
-export function useNow(intervalMs: number): number {
-    const [now, setNow] = useState(() => Date.now());
-    useEffect(() => {
-        const id = setInterval(() => setNow(Date.now()), intervalMs);
-        return () => clearInterval(id);
-    }, [intervalMs]);
-    return now;
+const CLOCK_INTERVAL_MS = 30_000;
+const clocks = new Map<number, ReturnType<typeof createClock>>();
+
+function createClock(intervalMs: number) {
+    const listeners = new Set<() => void>();
+    let now = Date.now();
+    let timer: ReturnType<typeof setInterval> | null = null;
+    const tick = () => {
+        now = Date.now();
+        listeners.forEach((listener) => listener());
+    };
+    return {
+        subscribe(listener: () => void) {
+            const wasIdle = listeners.size === 0;
+            listeners.add(listener);
+            if (wasIdle) {
+                now = Date.now();
+                timer = setInterval(tick, intervalMs);
+            }
+            return () => {
+                listeners.delete(listener);
+                if (listeners.size === 0 && timer) {
+                    clearInterval(timer);
+                    timer = null;
+                }
+            };
+        },
+        getSnapshot: () => now,
+    };
 }
 
-export function useResetText(resetTime: string | null): string {
-    const { t } = useTranslation();
-    useNow(30_000);
+function getClock(intervalMs: number) {
+    let clock = clocks.get(intervalMs);
+    if (!clock) {
+        clock = createClock(intervalMs);
+        clocks.set(intervalMs, clock);
+    }
+    return clock;
+}
+
+/** 同一 Webview 内相同刷新间隔的倒计时共享一个时钟，避免每个额度行各建定时器。 */
+export function useNow(intervalMs = CLOCK_INTERVAL_MS): number {
+    const clock = useMemo(() => getClock(intervalMs), [intervalMs]);
+    return useSyncExternalStore(clock.subscribe, clock.getSnapshot, clock.getSnapshot);
+}
+
+export function formatResetText(resetTime: string | null, now: number, t: TFunction): string {
     if (!resetTime) return "";
-    const ms = Date.parse(resetTime) - Date.now();
+    const ms = Date.parse(resetTime) - now;
     if (Number.isNaN(ms) || ms <= 60_000) return t("reset.soon");
     const minutes = Math.floor(ms / 60_000);
     const hours = Math.floor(minutes / 60);
@@ -26,7 +61,7 @@ export function useResetText(resetTime: string | null): string {
     return t("reset.minutes", { minutes });
 }
 
-export default function UsageCard({
+function UsageCard({
     title,
     win,
     loading = false,
@@ -36,7 +71,8 @@ export default function UsageCard({
     loading?: boolean;
 }) {
     const { t } = useTranslation();
-    const resetText = useResetText(win?.reset_time ?? null);
+    const now = useNow();
+    const resetText = formatResetText(win?.reset_time ?? null, now, t);
 
     if (!win) {
         return (
@@ -79,3 +115,5 @@ export default function UsageCard({
         </section>
     );
 }
+
+export default memo(UsageCard);

@@ -24,6 +24,7 @@ import LocalUsageCard from "../components/LocalUsageCard";
 import ModelTrendCard from "../components/ModelTrendCard";
 import LoginOverlay from "../components/LoginOverlay";
 import ConfirmDialog from "../components/ConfirmDialog";
+import AppUpdateDialog from "../components/AppUpdateDialog";
 import "../styles/styles.css";
 
 const GITHUB_URL = "https://github.com/hpz1179011410/KimiCodeBar-desktop";
@@ -42,6 +43,7 @@ const DEFAULT_KIMI_SUBSCRIPTION_ROWS: KimiSubscriptionRowKey[] = [
     "booster",
 ];
 const DEFAULT_OPENCODE_GO_ROWS: OpenCodeGoRowKey[] = ["five_hour", "weekly", "monthly"];
+const AUTO_REFRESH_DEDUP_MS = 30_000;
 
 function Panel() {
     const { t } = useTranslation();
@@ -62,10 +64,13 @@ function Panel() {
     const [refreshing, setRefreshing] = useState(false);
     const [menuOpen, setMenuOpen] = useState(false);
     const [logoutConfirmOpen, setLogoutConfirmOpen] = useState(false);
+    const [updateDialogOpen, setUpdateDialogOpen] = useState(false);
     const [loggingOut, setLoggingOut] = useState(false);
     const [animKey, setAnimKey] = useState(0);
     const [panelActive, setPanelActive] = useState(true);
     const scrollRef = useRef<HTMLDivElement>(null);
+    const refreshInFlightRef = useRef<Promise<void> | null>(null);
+    const lastAutoRefreshAtRef = useRef(0);
 
     // 滚动条平时隐藏：滚动时加 .scrolling 临时显示，停止 800ms 后移除
     useEffect(() => {
@@ -99,7 +104,7 @@ function Panel() {
     }, []);
 
     // 月度用量：先确认是否已配置 web token，配置了才拉取；失败不打扰其他卡片
-    const refreshMonthly = useCallback(async () => {
+    const refreshMonthly = useCallback(async (force = false) => {
         try {
             const configured = await ipc.getWebTokenConfigured();
             setMonthlyConfigured(configured);
@@ -109,7 +114,7 @@ function Panel() {
                 return;
             }
             try {
-                setMonthly(await ipc.getMonthly());
+                setMonthly(await ipc.getMonthly(force));
                 setMonthlyError(null);
             } catch (e) {
                 setMonthlyError(String(e));
@@ -120,7 +125,7 @@ function Panel() {
     }, []);
 
     // OpenCode Go：配置存在时从 Workspace Dashboard 读取三档订阅额度
-    const refreshOpenCodeGo = useCallback(async () => {
+    const refreshOpenCodeGo = useCallback(async (force = false) => {
         try {
             const configured = await ipc.getOpenCodeGoConfigured();
             setOpenCodeGoConfigured(configured);
@@ -130,7 +135,7 @@ function Panel() {
                 return;
             }
             try {
-                setOpenCodeGo(await ipc.getOpenCodeGoUsage());
+                setOpenCodeGo(await ipc.getOpenCodeGoUsage(force));
                 setOpenCodeGoError(null);
             } catch (e) {
                 setOpenCodeGoError(String(e));
@@ -140,57 +145,66 @@ function Panel() {
         }
     }, []);
 
-    const silentRefresh = useCallback(async () => {
-        // 四类数据彼此独立，并行刷新，避免网络与本地扫描耗时串行累加。
-        await Promise.all([
-            (async () => {
-                try {
-                    const q = await ipc.refreshQuota();
-                    setQuota(q);
-                    setError("");
-                    setExpired(false);
-                } catch (e) {
-                    // 静默刷新失败只记录横幅，不清空已有数据
-                    setError(String(e));
-                }
-            })(),
-            (async () => {
-                try {
-                    setLocalUsage(await ipc.refreshLocalUsage());
-                } catch {
-                    // 本地用量扫描失败不打扰用户
-                }
-            })(),
-            refreshMonthly(),
-            refreshOpenCodeGo(),
-        ]);
-    }, [refreshMonthly, refreshOpenCodeGo]);
+    const silentRefresh = useCallback(
+        async (force = false) => {
+            if (refreshInFlightRef.current) return refreshInFlightRef.current;
+            if (!force && Date.now() - lastAutoRefreshAtRef.current < AUTO_REFRESH_DEDUP_MS) return;
+
+            // 四类数据彼此独立，并行刷新；同一 Webview 内的聚焦、登录和手动刷新复用
+            // 同一个进行中任务，避免窗口快速开合时重复请求。
+            const task = Promise.all([
+                (async () => {
+                    try {
+                        const q = await ipc.refreshQuota();
+                        setQuota(q);
+                        setError("");
+                        setExpired(false);
+                    } catch (e) {
+                        // 静默刷新失败只记录横幅，不清空已有数据
+                        setError(String(e));
+                    }
+                })(),
+                (async () => {
+                    try {
+                        setLocalUsage(await ipc.refreshLocalUsage());
+                    } catch {
+                        // 本地用量扫描失败不打扰用户
+                    }
+                })(),
+                refreshMonthly(force),
+                refreshOpenCodeGo(force),
+            ]).then(() => {
+                lastAutoRefreshAtRef.current = Date.now();
+            });
+            refreshInFlightRef.current = task;
+            try {
+                await task;
+            } finally {
+                if (refreshInFlightRef.current === task) refreshInFlightRef.current = null;
+            }
+        },
+        [refreshMonthly, refreshOpenCodeGo],
+    );
 
     // 挂载：读设置 / 登录态 / 缓存配额 / 缓存本地用量，并订阅事件
     useEffect(() => {
         void (async () => {
-            try {
-                applySettings(await ipc.getSettings());
-            } catch {
+            const [settingsResult, loginResult, quotaResult, usageResult] =
+                await Promise.allSettled([
+                    ipc.getSettings(),
+                    ipc.getLoginState(),
+                    ipc.getQuota(),
+                    ipc.getLocalUsage(),
+                ]);
+            if (settingsResult.status === "fulfilled") {
+                applySettings(settingsResult.value);
+            } else {
                 applyTheme("system");
                 applyLanguage("system");
             }
-            try {
-                const state = await ipc.getLoginState();
-                setLoggedIn(state.logged_in);
-            } catch {
-                setLoggedIn(false);
-            }
-            try {
-                setQuota(await ipc.getQuota());
-            } catch {
-                /* 无缓存 */
-            }
-            try {
-                setLocalUsage(await ipc.getLocalUsage());
-            } catch {
-                /* 无缓存 */
-            }
+            setLoggedIn(loginResult.status === "fulfilled" && loginResult.value.logged_in);
+            if (quotaResult.status === "fulfilled") setQuota(quotaResult.value);
+            if (usageResult.status === "fulfilled") setLocalUsage(usageResult.value);
         })();
 
         const unlisteners: Array<() => void> = [];
@@ -267,7 +281,10 @@ function Panel() {
             .catch(() => undefined);
         void ipc
             .checkAppUpdate(false)
-            .then(setAppUpdate)
+            .then((info) => {
+                setAppUpdate(info);
+                if (info.update_available) setUpdateDialogOpen(true);
+            })
             .catch(() => undefined);
         void silentRefresh();
     }, [loggedIn, silentRefresh]);
@@ -276,7 +293,7 @@ function Panel() {
         if (refreshing) return;
         setRefreshing(true);
         const started = Date.now();
-        await silentRefresh();
+        await silentRefresh(true);
         // 加载效果至少显示 600ms，避免闪烁
         const elapsed = Date.now() - started;
         if (elapsed < 600) {
@@ -285,7 +302,7 @@ function Panel() {
         setRefreshing(false);
     };
 
-    const openSettings = async () => {
+    const openSettings = useCallback(async () => {
         setMenuOpen(false);
         // 打开独立设置窗口：每次打开都居中显示（居中失败不阻塞打开）
         const { WebviewWindow } = await import("@tauri-apps/api/webviewWindow");
@@ -300,7 +317,7 @@ function Panel() {
             await win.unminimize();
             await win.setFocus();
         }
-    };
+    }, []);
 
     const logout = async () => {
         if (loggingOut) return;
@@ -490,8 +507,7 @@ function Panel() {
                     <div
                         className={`version-row${appUpdate?.update_available ? " clickable" : ""}`}
                         onClick={() => {
-                            if (appUpdate?.update_available)
-                                void ipc.openUrl(appUpdate.release_url).catch(() => undefined);
+                            if (appUpdate?.update_available) setUpdateDialogOpen(true);
                         }}
                     >
                         <span className="version-name">{t("panel.appVersion")}</span>
@@ -515,6 +531,11 @@ function Panel() {
                 busy={loggingOut}
                 onConfirm={() => void logout()}
                 onCancel={() => setLogoutConfirmOpen(false)}
+            />
+            <AppUpdateDialog
+                open={updateDialogOpen}
+                info={appUpdate}
+                onClose={() => setUpdateDialogOpen(false)}
             />
         </div>
     );

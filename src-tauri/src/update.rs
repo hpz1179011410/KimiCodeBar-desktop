@@ -5,9 +5,11 @@
 use serde::Serialize;
 use std::cmp::Ordering;
 use std::path::{Path, PathBuf};
+use std::sync::Mutex;
 use std::time::Duration;
-use tauri::{AppHandle, Manager};
+use tauri::{ipc::Channel, AppHandle, Manager};
 use tauri_plugin_notification::NotificationExt;
+use tauri_plugin_updater::{Update, UpdaterExt};
 
 use crate::kimi::{HTTP_TIMEOUT, USER_AGENT};
 use crate::AppState;
@@ -42,6 +44,156 @@ pub struct AppUpdateInfo {
     pub update_available: bool,
     pub release_url: String,
     pub error: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct AppUpdateMetadata {
+    pub current: String,
+    pub latest: String,
+    pub notes: String,
+    pub published_at: Option<String>,
+    pub release_url: String,
+}
+
+#[derive(Clone, Serialize)]
+#[serde(tag = "event", content = "data", rename_all = "snake_case")]
+pub enum AppDownloadEvent {
+    Started { content_length: Option<u64> },
+    Progress { chunk_length: usize },
+    Finished,
+}
+
+enum PendingAppUpdate {
+    Available(Update),
+    Downloading(Update),
+    Downloaded { update: Update, bytes: Vec<u8> },
+}
+
+/// 待处理更新及已验证安装包只保存在内存中，应用退出后自动清理。
+#[derive(Default)]
+pub struct AppUpdateState(Mutex<Option<PendingAppUpdate>>);
+
+impl AppUpdateState {
+    fn metadata(pending: &PendingAppUpdate) -> AppUpdateMetadata {
+        let update = match pending {
+            PendingAppUpdate::Available(update)
+            | PendingAppUpdate::Downloading(update)
+            | PendingAppUpdate::Downloaded { update, .. } => update,
+        };
+        AppUpdateMetadata {
+            current: update.current_version.clone(),
+            latest: update.version.clone(),
+            notes: update
+                .body
+                .clone()
+                .filter(|body| !body.trim().is_empty())
+                .unwrap_or_else(|| "本次更新暂无详细说明。".into()),
+            published_at: update.date.map(|date| date.to_string()),
+            release_url: format!(
+                "https://github.com/{APP_REPO_OWNER}/{APP_REPO_NAME}/releases/tag/v{}",
+                update.version.trim_start_matches(['v', 'V'])
+            ),
+        }
+    }
+}
+
+/// 获取签名更新清单并保存待下载对象；已有任务时复用，避免多个窗口重复下载。
+pub async fn prepare_app_update(
+    app: &AppHandle,
+    state: &AppUpdateState,
+) -> Result<Option<AppUpdateMetadata>, String> {
+    if let Some(pending) = state.0.lock().map_err(|e| e.to_string())?.as_ref() {
+        return Ok(Some(AppUpdateState::metadata(pending)));
+    }
+
+    let found = app
+        .updater()
+        .map_err(|e| e.to_string())?
+        .check()
+        .await
+        .map_err(|e| e.to_string())?;
+    let Some(update) = found else {
+        return Ok(None);
+    };
+    let metadata = AppUpdateState::metadata(&PendingAppUpdate::Available(update.clone()));
+    *state.0.lock().map_err(|e| e.to_string())? = Some(PendingAppUpdate::Available(update));
+    Ok(Some(metadata))
+}
+
+/// 在后台下载并校验签名，下载完成前不启动安装程序。
+pub async fn download_app_update(
+    state: &AppUpdateState,
+    on_event: Channel<AppDownloadEvent>,
+) -> Result<(), String> {
+    let update = {
+        let mut pending = state.0.lock().map_err(|e| e.to_string())?;
+        match pending.take() {
+            Some(PendingAppUpdate::Available(update)) => {
+                *pending = Some(PendingAppUpdate::Downloading(update.clone()));
+                update
+            }
+            Some(downloaded @ PendingAppUpdate::Downloaded { .. }) => {
+                *pending = Some(downloaded);
+                return Ok(());
+            }
+            Some(downloading @ PendingAppUpdate::Downloading(_)) => {
+                *pending = Some(downloading);
+                return Err("更新正在后台下载".into());
+            }
+            None => return Err("没有待下载的应用更新".into()),
+        }
+    };
+
+    let mut started = false;
+    let bytes = update
+        .download(
+            |chunk_length, content_length| {
+                if !started {
+                    started = true;
+                    let _ = on_event.send(AppDownloadEvent::Started { content_length });
+                }
+                let _ = on_event.send(AppDownloadEvent::Progress { chunk_length });
+            },
+            || {
+                let _ = on_event.send(AppDownloadEvent::Finished);
+            },
+        )
+        .await;
+
+    let mut pending = state.0.lock().map_err(|e| e.to_string())?;
+    match bytes {
+        Ok(bytes) => {
+            *pending = Some(PendingAppUpdate::Downloaded { update, bytes });
+            Ok(())
+        }
+        Err(error) => {
+            *pending = Some(PendingAppUpdate::Available(update));
+            Err(error.to_string())
+        }
+    }
+}
+
+/// 安装已下载且验签通过的更新。Windows 会在安装开始前自动退出应用。
+pub fn install_app_update(state: &AppUpdateState) -> Result<(), String> {
+    let downloaded = state.0.lock().map_err(|e| e.to_string())?.take();
+    let Some(PendingAppUpdate::Downloaded { update, bytes }) = downloaded else {
+        return Err("更新尚未下载完成".into());
+    };
+    if let Err(error) = update.install(&bytes) {
+        *state.0.lock().map_err(|e| e.to_string())? =
+            Some(PendingAppUpdate::Downloaded { update, bytes });
+        return Err(error.to_string());
+    }
+    Ok(())
+}
+
+pub fn discard_app_update(state: &AppUpdateState) -> Result<(), String> {
+    let mut pending = state.0.lock().map_err(|e| e.to_string())?;
+    if matches!(pending.as_ref(), Some(PendingAppUpdate::Downloading(_))) {
+        return Err("更新正在下载，暂时无法取消".into());
+    }
+    pending.take();
+    Ok(())
 }
 
 /// 从文本中提取首个 x.y.z 版本号（允许带 v 前缀）。
@@ -405,5 +557,32 @@ pub async fn background_update_check(app: &AppHandle) {
                 ))
                 .show();
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn parses_release_and_cli_versions() {
+        assert_eq!(parse_version("KimiCodeBar v0.1.2"), Some("0.1.2".into()));
+        assert_eq!(parse_version("kimi-code 1.8.0-beta"), Some("1.8.0".into()));
+        assert_eq!(parse_version("no version"), None);
+    }
+
+    #[test]
+    fn compares_versions_with_optional_v_prefix() {
+        assert_eq!(compare_versions("0.1.1", "v0.1.2"), Ordering::Less);
+        assert_eq!(compare_versions("v0.1.1", "0.1.1"), Ordering::Equal);
+        assert_eq!(compare_versions("0.2.0", "0.1.9"), Ordering::Greater);
+    }
+
+    #[test]
+    fn detects_only_strictly_newer_app_releases() {
+        let current = env!("CARGO_PKG_VERSION");
+        assert!(!build_app_update_info(Some(current.into()), None).update_available);
+        assert!(!build_app_update_info(Some("0.1.0".into()), None).update_available);
+        assert!(build_app_update_info(Some("999.0.0".into()), None).update_available);
     }
 }

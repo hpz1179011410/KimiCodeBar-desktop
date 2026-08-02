@@ -25,7 +25,7 @@
 - **会话自动归档**：按期限（一天/一周/一月）自动归档旧会话，可手动归档/取消归档
 - **桌面小部件**：直接复用 Kimi / OpenCode Go 订阅组合卡片，主面板的额度行显隐与排序会同步生效；可拖拽调整位置并记忆，支持两张订阅卡显隐与排序
 - **技能管理**：浏览 `~/.kimi-code/skills` 下的技能定义与全文
-- **更新提醒**：自动探测 Kimi Code CLI 新版本与应用自身新版本
+- **应用内更新**：自动探测 Kimi Code CLI 与应用新版本；展示更新日志后由用户决定是否后台下载，签名校验完成后可选择立即或稍后安装
 - **体验细节**：中英双语、深色/浅色/跟随系统主题、开机自启、卡片入场与进度条/柱状图动效（`prefers-reduced-motion` 自动降级）、刷新 shimmer 加载、滚动条按需显示
 
 ## 技术栈
@@ -60,7 +60,7 @@ npm install && npm run tauri build    # 产出 .deb / AppImage 等
 - OAuth Device Flow 与 Kimi Code CLI 官方流程一致；凭证与 CLI 隔离存放，互不影响
 - 本地用量统计**只读**扫描 `~/.kimi-code/sessions` 的 `wire.jsonl`，增量解析（字节偏移持久化）
 - OpenCode Go 的 Workspace ID 与 `auth` Cookie 仅存系统钥匙串；额度刷新只请求用户自己的 `opencode.ai/workspace/{id}/go` 页面
-- 网络请求只与 Kimi 官方（`api.kimi.com` / `auth.kimi.com` / `www.kimi.com`）、OpenCode 官方（`opencode.ai`）、欧洲央行（`ecb.europa.eu`，每日参考汇率）及 GitHub（更新检查）通信
+- 网络请求只与 Kimi 官方（`api.kimi.com` / `auth.kimi.com` / `www.kimi.com`）、OpenCode 官方（`opencode.ai`）、欧洲央行（`ecb.europa.eu`，每日参考汇率）及 GitHub（更新检查与签名安装包下载）通信
 
 ## 开发
 

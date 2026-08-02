@@ -112,6 +112,15 @@ button:disabled {
     opacity: 0.55;
 }
 
+button:focus-visible,
+input:focus-visible,
+textarea:focus-visible,
+select:focus-visible,
+[tabindex]:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 2px;
+}
+
 /* ---------- 动效关键帧 ---------- */
 
 @keyframes fade-in {
@@ -214,7 +223,7 @@ button:disabled {
     height: 100%;
     display: flex;
     flex-direction: column;
-    gap: 12px;
+    gap: 8px;
     padding: 12px;
     overflow: hidden;
     border-radius: 12px;
@@ -274,7 +283,9 @@ button:disabled {
     display: flex;
     align-items: center;
     gap: 8px;
-    padding: 4px 2px 0;
+    min-height: 38px;
+    padding: 3px 4px 8px;
+    border-bottom: 1px solid var(--card-border);
 }
 
 /* 品牌徽章：与应用图标一致的蓝渐变圆角矩形 + 白字 K */
@@ -302,7 +313,8 @@ button:disabled {
 
 .header-title {
     font-weight: 600;
-    font-size: 14px;
+    font-size: 15px;
+    letter-spacing: -0.01em;
     flex: 1;
 }
 
@@ -323,6 +335,9 @@ button:disabled {
     background: var(--hover);
     color: var(--text);
 }
+.icon-btn:active:not(:disabled) {
+    transform: scale(0.94);
+}
 
 /* ---------- 卡片 ---------- */
 
@@ -337,6 +352,12 @@ button:disabled {
         transform var(--dur-normal) var(--ease),
         box-shadow var(--dur-normal) var(--ease),
         border-color var(--dur-normal) var(--ease);
+}
+
+/* 屏外卡片延迟绘制；保留估算高度，避免首次滚动时滚动条明显跳动。 */
+.app-scroll > .card {
+    content-visibility: auto;
+    contain-intrinsic-block-size: auto 220px;
 }
 .card:hover {
     transform: translateY(-1px);
@@ -462,7 +483,6 @@ button:disabled {
     position: absolute;
     inset: 0;
     border-radius: inherit;
-    will-change: transform;
 }
 .progress-fill::after {
     right: -22.63px;
@@ -790,7 +810,15 @@ button:disabled {
     align-items: center;
     gap: 6px;
     min-width: 0;
+    min-height: 24px;
+    padding: 2px 4px;
+    border-radius: 6px;
     font-size: 11px;
+    transition: background var(--dur-fast) var(--ease);
+}
+
+.combined-trend-legend-row:hover {
+    background: var(--hover);
 }
 
 .trend-series-dot {
@@ -1378,6 +1406,205 @@ button:disabled {
     box-shadow: 0 3px 10px var(--danger-soft);
 }
 
+/* 应用更新：先展示版本说明，用户确认后才在后台下载。 */
+.update-backdrop {
+    padding: 14px;
+}
+
+.update-dialog {
+    width: min(420px, 100%);
+    max-height: calc(100vh - 28px);
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    padding: 16px;
+    overflow: hidden;
+    border: 1px solid var(--card-border-hover);
+    border-radius: var(--radius-card);
+    background: var(--card);
+    box-shadow: var(--shadow-hover);
+    animation: menu-in var(--dur-normal) var(--ease);
+}
+
+.update-dialog-head {
+    display: flex;
+    align-items: center;
+    gap: 11px;
+}
+
+.update-dialog-icon {
+    width: 40px;
+    height: 40px;
+    display: grid;
+    flex: 0 0 40px;
+    place-items: center;
+    border-radius: 12px;
+    background: var(--brand-grad);
+    color: #fff;
+    box-shadow: var(--accent-glow);
+    font-size: 20px;
+    font-weight: 700;
+}
+
+.update-dialog-title {
+    color: var(--text);
+    font-size: 15px;
+    font-weight: 700;
+}
+
+.update-dialog-version {
+    margin-top: 3px;
+    color: var(--accent);
+    font-size: 11px;
+    font-weight: 600;
+}
+
+.update-dialog-section-title {
+    color: var(--text-dim);
+    font-size: 11px;
+    font-weight: 600;
+}
+
+.update-dialog-notes {
+    min-height: 86px;
+    max-height: min(280px, calc(100vh - 210px));
+    padding: 11px 12px;
+    overflow: auto;
+    border: 1px solid var(--card-border);
+    border-radius: var(--radius-control);
+    background: var(--input-bg);
+    color: var(--text);
+    font-size: 11px;
+    line-height: 1.65;
+    white-space: pre-wrap;
+    user-select: text;
+}
+
+.update-dialog-loading,
+.update-dialog-ready-copy,
+.update-dialog-error {
+    min-height: 72px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 10px;
+    padding: 12px;
+    border: 1px solid var(--card-border);
+    border-radius: var(--radius-control);
+    background: var(--input-bg);
+    color: var(--text-dim);
+    font-size: 11px;
+    line-height: 1.6;
+    text-align: center;
+}
+
+.update-dialog-loading .spinner {
+    width: 18px;
+    height: 18px;
+}
+
+.update-dialog-error {
+    border-color: color-mix(in srgb, var(--danger) 42%, var(--card-border));
+    color: var(--danger);
+}
+
+.update-dialog-actions {
+    display: grid;
+    grid-template-columns: 1fr 1.35fr;
+    gap: 8px;
+}
+
+.update-dialog-actions .btn {
+    min-height: 36px;
+    font-weight: 600;
+}
+
+.update-dialog-actions .update-secondary {
+    border-color: var(--card-border);
+    background: var(--input-bg);
+}
+
+.update-dialog-actions .update-primary {
+    grid-column: auto;
+    border-color: transparent;
+    color: #fff;
+    box-shadow: var(--accent-glow);
+}
+
+.update-dialog-actions > :only-child {
+    grid-column: 1 / -1;
+}
+
+.update-download-toast {
+    position: fixed;
+    top: 14px;
+    right: 14px;
+    z-index: 90;
+    width: min(300px, calc(100vw - 28px));
+    display: grid;
+    grid-template-columns: 32px minmax(0, 1fr) auto;
+    align-items: center;
+    gap: 9px;
+    padding: 10px 11px 13px;
+    overflow: hidden;
+    border: 1px solid var(--card-border-hover);
+    border-radius: var(--radius-control);
+    background: var(--card);
+    box-shadow: var(--shadow-hover);
+    animation: menu-in var(--dur-normal) var(--ease);
+}
+
+.update-download-toast-icon {
+    width: 30px;
+    height: 30px;
+    display: grid;
+    place-items: center;
+    border-radius: 9px;
+    background: var(--accent-soft);
+    color: var(--accent);
+    font-size: 17px;
+    font-weight: 700;
+}
+
+.update-download-toast-copy {
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    text-align: left;
+}
+
+.update-download-toast-copy strong {
+    overflow: hidden;
+    color: var(--text);
+    font-size: 11px;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.update-download-toast-copy span,
+.update-download-toast-percent {
+    color: var(--text-dim);
+    font-size: 9px;
+}
+
+.update-download-toast-track {
+    position: absolute;
+    right: 0;
+    bottom: 0;
+    left: 0;
+    height: 3px;
+    overflow: hidden;
+    background: var(--track);
+}
+
+.update-download-toast-track > span {
+    display: block;
+    height: 100%;
+    background: var(--brand-grad);
+    transition: width var(--dur-fast) linear;
+}
+
 .link-btn {
     color: var(--accent);
     font-size: 12px;
@@ -1486,6 +1713,7 @@ button:disabled {
     display: flex;
     flex-direction: column;
     gap: 2px;
+    background: color-mix(in srgb, var(--card) 32%, transparent);
 }
 
 .nav-item {
@@ -1525,6 +1753,7 @@ button:disabled {
     flex: 1;
     overflow-y: auto;
     padding: 16px 16px 20px;
+    scrollbar-gutter: stable;
 }
 
 /* 页面切换：组件重挂载触发淡入上移 */
@@ -1584,6 +1813,7 @@ button:disabled {
     font-weight: 700;
     color: var(--accent);
     white-space: nowrap;
+    font-variant-numeric: tabular-nums;
 }
 
 .subscription-window-percent.low {
@@ -1639,6 +1869,7 @@ button.subscription-window-message:hover {
     font-size: 10px;
     line-height: 1.4;
     color: var(--text-dim);
+    font-variant-numeric: tabular-nums;
 }
 
 /* ---------- 月度用量（网页端令牌） ---------- */
@@ -1649,10 +1880,19 @@ button.subscription-window-message:hover {
     align-items: center;
     column-gap: 8px;
     width: 100%;
-    background: none;
-    border: none;
-    padding: 0;
+    min-height: 38px;
+    padding: 8px 10px;
+    border: 1px solid var(--card-border);
+    border-radius: var(--radius-control);
+    background: var(--input-bg);
     cursor: pointer;
+    transition:
+        border-color var(--dur-fast) var(--ease),
+        background var(--dur-fast) var(--ease);
+}
+.web-token-toggle:hover {
+    border-color: var(--card-border-hover);
+    background: var(--accent-soft);
 }
 .web-token-toggle-label {
     grid-column: 1;
@@ -1708,12 +1948,20 @@ button.card-empty:hover {
     gap: 12px;
     padding: 8px 2px;
     min-height: 36px;
+    border-radius: var(--radius-control);
+    transition: background var(--dur-fast) var(--ease);
+}
+
+.field-row:hover {
+    background: var(--hover);
 }
 
 .subscription-options {
-    margin: -2px 2px 6px 12px;
-    padding: 3px 0 3px 10px;
-    border-left: 2px solid var(--card-border);
+    margin: 2px 0 8px 10px;
+    padding: 4px 8px 4px 10px;
+    border-left: 2px solid var(--accent-soft);
+    border-radius: 0 var(--radius-control) var(--radius-control) 0;
+    background: color-mix(in srgb, var(--accent-soft) 42%, transparent);
 }
 
 .subscription-option {
