@@ -4,6 +4,12 @@ on:
     push:
         tags:
             - "v*"
+    workflow_dispatch:
+        inputs:
+            tag:
+                description: 要发布的版本标签（例如 v0.1.3）
+                required: true
+                type: string
 
 permissions:
     contents: write
@@ -12,12 +18,27 @@ jobs:
     build:
         name: 构建 Windows（x64 NSIS）
         runs-on: windows-latest
+        env:
+            RELEASE_TAG: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name }}
 
         steps:
-            - uses: actions/checkout@v4
+            - uses: actions/checkout@v5
+              with:
+                  ref: ${{ env.RELEASE_TAG }}
+
+            - name: 校验发布标签
+              shell: pwsh
+              run: |
+                  if ($env:RELEASE_TAG -notmatch '^v\d+\.\d+\.\d+$') {
+                      throw "发布标签格式无效：$env:RELEASE_TAG"
+                  }
+                  $packageVersion = (Get-Content package.json -Raw | ConvertFrom-Json).version
+                  if ($env:RELEASE_TAG -ne "v$packageVersion") {
+                      throw "标签 $env:RELEASE_TAG 与项目版本 v$packageVersion 不一致"
+                  }
 
             - name: 安装 Node.js
-              uses: actions/setup-node@v4
+              uses: actions/setup-node@v5
               with:
                   node-version: 20
                   cache: npm
@@ -37,7 +58,7 @@ jobs:
               id: release_notes
               shell: pwsh
               run: |
-                  $version = "${{ github.ref_name }}".TrimStart("v")
+                  $version = $env:RELEASE_TAG.TrimStart("v")
                   $lines = Get-Content CHANGELOG.md -Encoding utf8
                   $heading = "^## \[$([regex]::Escape($version))\]"
                   $start = 0..($lines.Count - 1) | Where-Object { $lines[$_] -match $heading } | Select-Object -First 1
@@ -66,8 +87,8 @@ jobs:
                   GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
                   TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
               with:
-                  tagName: ${{ github.ref_name }}
-                  releaseName: "KimiCodeBar ${{ github.ref_name }}"
+                  tagName: ${{ env.RELEASE_TAG }}
+                  releaseName: "KimiCodeBar ${{ env.RELEASE_TAG }}"
                   releaseBody: ${{ steps.release_notes.outputs.body }}
                   releaseDraft: false
                   prerelease: false
